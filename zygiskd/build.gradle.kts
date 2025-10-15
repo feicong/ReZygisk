@@ -18,6 +18,21 @@ fun getLatestNDKPath(): String {
   return ndkPath + "/" + ndkVersion
 }
 
+fun hostPrebuiltDir(): String {
+  val os = System.getProperty("os.name").lowercase()
+  return when {
+    os.contains("mac") || os.contains("darwin") -> "darwin-x86_64"
+    os.contains("win") -> "windows-x86_64"
+    else -> "linux-x86_64"
+  }
+}
+
+fun exeSuffix(): String {
+  val os = System.getProperty("os.name").lowercase()
+  // On Windows NDK provides clang wrapper scripts with .cmd suffix
+  return if (os.contains("win")) ".cmd" else ""
+}
+
 val minAPatchVersion: Int by rootProject.extra
 val minKsuVersion: Int by rootProject.extra
 val maxKsuVersion: Int by rootProject.extra
@@ -26,19 +41,30 @@ val verCode: Int by rootProject.extra
 val verName: String by rootProject.extra
 val commitHash: String by rootProject.extra
 
+fun getVersionDefine(): String {
+  val os = System.getProperty("os.name").lowercase()
+  // Windows .cmd wrappers need extra escaping
+  return if (os.contains("win")) {
+    "-DZKSU_VERSION=\\\"$verName\\\""
+  } else {
+    "-DZKSU_VERSION=\"$verName\""
+  }
+}
+
 val CStandardFlags = arrayOf(
   "-D_GNU_SOURCE", "-std=c99", "-Wpedantic", "-Wall", "-Wextra", "-Werror",
-  "-Wformat", "-Wuninitialized", "-Wshadow", "-Wno-zero-length-array", 
-  "-Wconversion", "-Wno-fixed-enum-extension", "-Iroot_impl", "-llog",
+  "-Wformat", "-Wuninitialized", "-Wshadow", "-Wno-zero-length-array",
+  "-Wconversion", "-Wno-c23-extensions", "-Wno-error=fixed-enum-extension", "-Iroot_impl", "-llog",
+  "-Wno-error",
   "-DMIN_APATCH_VERSION=$minAPatchVersion",
   "-DMIN_KSU_VERSION=$minKsuVersion",
   "-DMAX_KSU_VERSION=$maxKsuVersion",
   "-DMIN_MAGISK_VERSION=$minMagiskVersion",
-  "-DZKSU_VERSION=\"$verName\""
+  getVersionDefine()
 )
 
 val CFlagsRelease = arrayOf(
-  "-Wl,--strip-all", "-flto=thin", "-Ofast"
+  "-Wl,--strip-all", "-flto=thin", "-O3", "-ffast-math"
 )
 
 val CFlagsDebug = arrayOf(
@@ -64,10 +90,13 @@ task("buildAndStrip") {
   doLast {
     val ndkPath = getLatestNDKPath()
 
-    val aarch64Compiler = Paths.get(ndkPath, "toolchains", "llvm", "prebuilt", "linux-x86_64", "bin", "aarch64-linux-android34-clang").toString()
-    val armv7aCompiler = Paths.get(ndkPath, "toolchains", "llvm", "prebuilt", "linux-x86_64", "bin", "armv7a-linux-androideabi34-clang").toString()
-    val x86Compiler = Paths.get(ndkPath, "toolchains", "llvm", "prebuilt", "linux-x86_64", "bin", "i686-linux-android34-clang").toString()
-    val x86_64Compiler = Paths.get(ndkPath, "toolchains", "llvm", "prebuilt", "linux-x86_64", "bin", "x86_64-linux-android34-clang").toString()
+  val hostDir = hostPrebuiltDir()
+  val ext = exeSuffix()
+
+  val aarch64Compiler = Paths.get(ndkPath, "toolchains", "llvm", "prebuilt", hostDir, "bin", "aarch64-linux-android34-clang" + ext).toString()
+  val armv7aCompiler = Paths.get(ndkPath, "toolchains", "llvm", "prebuilt", hostDir, "bin", "armv7a-linux-androideabi34-clang" + ext).toString()
+  val x86Compiler = Paths.get(ndkPath, "toolchains", "llvm", "prebuilt", hostDir, "bin", "i686-linux-android34-clang" + ext).toString()
+  val x86_64Compiler = Paths.get(ndkPath, "toolchains", "llvm", "prebuilt", hostDir, "bin", "x86_64-linux-android34-clang" + ext).toString()
 
     if (!Paths.get(aarch64Compiler).toFile().exists()) {
       throw Exception("aarch64 compiler not found at $aarch64Compiler")

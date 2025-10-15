@@ -6,7 +6,10 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,6 +30,7 @@ jobs:
         env:
           private_key: ${{ secrets.ORG_PRIVATE_KEY }}
           public_key: ${{ secrets.ORG_PUBLIC_KEY }}
+        shell: bash
         run: |
           if [ -z "$private_key" ] || [ -z "$public_key" ]; then
             echo "Private or public key is not set."
@@ -36,17 +40,24 @@ jobs:
           fi
 
       - name: Build with Gradle
+        shell: bash
         run: |
           echo 'org.gradle.parallel=true' >> gradle.properties
           echo 'org.gradle.vfs.watch=true' >> gradle.properties
           echo 'org.gradle.jvmargs=-Xmx2048m' >> gradle.properties
-          sed -i 's/org.gradle.unsafe.configuration-cache=true//g' gradle.properties
-          ./gradlew zipRelease
-          ./gradlew zipDebug
+          sed -i 's/org.gradle.unsafe.configuration-cache=true//g' gradle.properties || true
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            ./gradlew.bat zipRelease
+            ./gradlew.bat zipDebug
+          else
+            ./gradlew zipRelease
+            ./gradlew zipDebug
+          fi
 
       - name: Prepare artifact
         if: success()
         id: prepareArtifact
+        shell: bash
         run: |
           releaseName=`ls module/build/outputs/release/ReZygisk-v*-release.zip | awk -F '(/|.zip)' '{print $5}'` && echo "releaseName=$releaseName" >> $GITHUB_OUTPUT
           debugName=`ls module/build/outputs/release/ReZygisk-v*-debug.zip | awk -F '(/|.zip)' '{print $5}'` && echo "debugName=$debugName" >> $GITHUB_OUTPUT
@@ -54,13 +65,15 @@ jobs:
           unzip module/build/outputs/release/ReZygisk-v*-debug.zip -d zksu-debug
 
       - name: Upload release
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.prepareArtifact.outputs.releaseName }}
+          name: ${{ steps.prepareArtifact.outputs.releaseName }}-${{ matrix.os }}
           path: "./zksu-release/*"
 
       - name: Upload debug
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.prepareArtifact.outputs.debugName }}
+          name: ${{ steps.prepareArtifact.outputs.debugName }}-${{ matrix.os }}
           path: "./zksu-debug/*"
